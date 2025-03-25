@@ -601,6 +601,7 @@ fun main() = runBlocking {
         var nextPrintTime = startTime
         var i = 0
         while (isActive) {   // Điều kiện i < 5 đã được thay bằng isActive để ngăn chặn coroutine khi nó đã bị hủy
+            // hoặc có thể sử dụng ensureActive()
             if (System.currentTimeMillis() >= nextPrintTime) {
                 println("job: I'm sleeping ${i++} ...")
                 nextPrintTime += 500L

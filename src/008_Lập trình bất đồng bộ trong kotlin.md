@@ -1357,6 +1357,7 @@ Lưu ý khi sử dụng supervisorScope là mỗi coroutine con nên tự xử l
 **Kết luận**
 
 Kết thúc phần 7, hy vọng bạn đã biết cách xử lý các exception trong coroutine. Sau 7 bài viết về coroutine, mình tin là đủ để các bạn sử dụng coroutine vào dự án rồi đấy 😄. Cảm ơn các bạn đã theo dõi bài viết này. Hy vọng các bạn sẽ tiếp tục theo dõi những phần tiếp theo 😄
+
 # VIII. Flow (part 1 of 3)
 ## 1. Giới thiệu Flow trong Kotlin Coroutine
 ### 1.1. Flow về cơ bản khá giống Sequences trong Kotlin nhưng khác ở chỗ Sequences xử lý đồng bộ còn Flow xử lý bất đồng bộ. Nếu bạn chưa biết về Sequences thì khái niệm này khiến bạn khá khó hiểu đúng hơm 😄. Vậy nên trước tiên mình sẽ nói đôi chút về Collections và Sequences trong Kotlin.
@@ -1423,7 +1424,7 @@ Process finished with exit code 0
 2 Output được in ra là giống nhau và thời gian thực hiện cũng bằng nhau, đều là 3 giây, nhưng khác ở chỗ thằng `List` nó đợi add xong cả 3 phần tử rồi mới in ra, còn trong ví dụ Sequence thì cứ mỗi giây thì có phần tử được yield và phần tử đó lập tức được in ra ngay mà không phải đợi yield xong cả 3 phần tử.
 
     - yield là một phương thức trong sequence builder của Kotlin, được dùng để phát sinh một giá trị và tạm dừng thực thi, chờ lần gọi tiếp theo. Nó hỗ trợ xử lý dữ liệu theo kiểu lazy, tức là chỉ sinh giá trị khi cần.
-    - yield khác với return ở chỗ, yield chỉ tạm dừng thực thi tại điểm gọi, và tiếp tục thực thi khi phần tử tếp theo được yêu cầu
+    - yield khác với return ở chỗ, yield chỉ tạm dừng thực thi tại điểm gọi, và tiếp tục thực thi từ vị trí đã dừng khi được gọi lại.
     - Điều này rất hữu ích trong việc xử lý tuần tự hoặc tạo các luồng dữ liệu phức tạp mà không tiêu tốn nhiều bộ nhớ 
 
 Còn đây là Flow:
@@ -1684,9 +1685,944 @@ def
 **Kết luận**
 
 Flow thật sự là một thứ rất powerful trong Kotlin Coroutine. Hy vọng qua bài viết này, các bạn đã hiểu biết phần nào đó về Flow. Trong phần tiếp theo, mình sẽ giới thiệu sức mạnh thật sự của nó - đó chính là các toán tử (operators). Flow có rất nhiều toán tử không thua kém gì Rx đâu nha 😄. Cảm ơn các bạn đã theo dõi bài viết này. Hy vọng các bạn sẽ tiếp tục theo dõi những phần tiếp theo. 😄
+
 # IX. Flow (part 2 of 3)
+## 1. Toán tử trong Flow
+Nếu bạn chưa biết `Flow` là gì, bạn có thể tham khảo phần 1 của bài viết này tại đây. Bài viết này, mình sẽ tập trung khai thác sức mạnh thật sự của Flow, đó là các toán tử (operators). Thời điểm viết bài này, mình đang sử dụng kotlin coroutine version 1.3.3. Vậy các bạn cần update tối thiểu đến version này để đảm bảo có đầy đủ các toán tử trong bài viết này.
+### 1.1. Toán tử take()
+Sử dụng toán tử take() nếu bạn muốn nguồn thu lấy một lượng giới hạn các phần tử được phát ra từ nguồn phát. Ví dụ:
+```kotlin
+fun numbers(): Flow<Int> = flow {
+    try {
+        emit(1)
+        emit(2)
+        println("This line will not execute")
+        emit(3)
+    } catch (e: CancellationException) {
+        println("exception")
+    } finally {
+        println("close resource here")
+    }
+}
+
+fun main() = runBlocking {
+    numbers()
+        .take(2) // take only the first two
+        .collect { value -> println(value) }
+}
+
+```
+Output:
+```
+1
+2
+exception
+close resource here
+```
+Đoạn code trên mình chỉ lấy 2 phần tử từ nguồn phát bằng hàm `take(2)` nên sau khi nguồn phát `emit` được 2 phần tử đầu, nó lập tức `throw CancellationException`. Vì vậy câu `This line will not execute` và phần tử `3` không được in ra. Mặc dù vậy, code trong khối `finally` vẫn được thực thi, tính năng này rất cần thiết khi bạn muốn close resource.
+
+### 1.2. Toán tử transform()
+Toán tử này được dùng để biến đổi giá trị được phát ra từ nguồn phát trước khi `emit` cho nguồn thu nhận nó. Ngoài công dụng chính là để biến đổi phần tử, nó còn có các công dụng khác như nguồn thu có thể bỏ qua (skip) các giá trị mà nó không muốn nhận từ nguồn phát hoặc chúng ta có thể `emit` một giá trị nhiều hơn một lần (có nghĩa là phát 10 giá trị nhưng nhận có thể tới 20 giá trị). Ví dụ dưới đây mình có một nguồn phát có nhiệm vụ phát ra data từ số 1 đến số 9 và mong muốn của mình là nguồn thu bỏ qua các giá trị lẻ, và đối với giá trị chẵn thì biến đổi chúng thành các lũy thừa bậc 2, bậc 3 của chính nó.
+```
+fun main() = runBlocking {
+    (1..9).asFlow() // a flow of requests
+        .transform { value ->
+            if (value % 2 == 0) { // Emit only even values, but twice
+                emit(value * value)
+                emit(value * value * value)
+            } // Do nothing if odd
+        }
+        .collect { response -> println(response) }
+}
+```
+Output:
+```
+4
+8
+16
+64
+36
+216
+64
+512
+```
+Vậy với 4 giá trị chẵn (2, 4, 6, 8), mỗi giá trị chẵn mình emit 2 lần nên nguồn thu sẽ nhận được tới 8 giá trị như output.
+### 1.3. Toán tử map()
+```kotlin
+/**
+ * Returns a flow containing the results of applying the given [transformer] function to each value of the original flow.
+ */
+@FlowPreview
+public fun <T, R> Flow<T>.map(transformer: suspend (value: T) -> R): Flow<R> = transform { value -> emit(transformer(value)) }
+
+```
+
+Đoạn code toán tử map được trích dẫn từ thư viện Kotlin Coroutine. Nhìn code trên cũng có thể thấy được toán tử map có quan hệ với toán tử transform. Vậy công dụng chính của nó cũng là để biến đổi phần tử nhận được như toán tử transform nhưng khác ở chỗ: toán tử transform cho phép ta skip phần tử hoặc emit một phần tử nhiều lần còn toán tử map thì không thể skip hay emit multiple times. Với mỗi phần tử nhận được từ nguồn phát, nguồn thu sẽ xử lý biến đổi và emit một và chỉ một giá trị cho nguồn thu (tức là phát 1 thì thu 1, phát 10 thì thu 10).
+`nguồn phát -> toán tử map biến đổi giá trị -> nguồn thu`
+```kotlin
+fun main() = runBlocking {
+    (1..3).asFlow()
+        .map { it * it } // squares of numbers from 1 to 5
+        .collect { println(it) }
+}
+
+```
+Output:
+```
+1
+4
+9
+```
+Ví dụ code trên mình phát ra 3 giá trị, nguồn thu sẽ nhận được đúng 3 giá trị sau khi được biến đổi từ toán tử map
+### 1.4. Toán tử filter()
+Toán tử này giúp chúng ta filter lọc ra các giá trị thỏa mãn điều kiện và bỏ qua các giá trị không thỏa mãn điều kiện từ nguồn phát. Ví dụ mình muốn lọc ra các giá trị chẵn:
+```kotlin
+fun main() = runBlocking {
+    (1..5).asFlow()
+        .filter {
+            println("Filter $it")
+            it % 2 == 0
+        }.collect {
+            println("Collect $it")
+        }
+}
+
+```
+Output:
+```
+Filter 1
+Filter 2
+Collect 2
+Filter 3
+Filter 4
+Collect 4
+Filter 5
+```
+Dựa vào output chúng ta có thể thấy có 5 phần tử từ flow chạy vào hàm filter nhưng chỉ có 2 phần tử được collect là 2 và 4.
+
+Ở đây chúng ta thấy công dụng lọc này giống với công dụng của hàm transform. Đúng vậy, hàm filter thực chất cũng sử dụng hàm transform nên hàm transform cũng có thể lọc phần tử y hệt hàm filter.
+```kotlin
+/**
+ * Returns a flow containing only values of the original flow that matches the given [predicate].
+ */
+public inline fun <T> Flow<T>.filter(crossinline predicate: suspend (T) -> Boolean): Flow<T> = transform { value ->
+    if (predicate(value)) return@transform emit(value)
+}
+
+```
+
+### 1.5. Toán tử onEach()
+Toán tử này dùng khi ta muốn thực hiện một action gì đó trước khi value từ flow được emit.
+```kotlin
+/**
+ * Returns a flow which performs the given [action] on each value of the original flow.
+ */
+public fun <T> Flow<T>.onEach(action: suspend (T) -> Unit): Flow<T> = transform { value ->
+    action(value)
+    return@transform emit(value)
+}
+
+```
+Ví dụ mình muốn mỗi phần tử bị delay 3s trước khi được emit ra.
+```kotlin
+fun main() = runBlocking {
+    val nums = (1..3).asFlow().onEach { delay(3000) } // numbers 1..3 every 300 ms
+    val startTime = System.currentTimeMillis()
+    nums.collect { value ->
+            println("$value at ${System.currentTimeMillis() - startTime} ms from start")
+        }
+}
+
+```
+```
+Output:
+1 at 3006 ms from start
+2 at 6008 ms from start
+3 at 9009 ms from start
+```
+Dựa vào output có thể thấy mỗi phần tử bị `delay 3s` trước khi được `emit` ra.
+
+### 1.6. Toán tử reduce()
+Hàm reduce cực hữu ích khi chúng ta cần tính tổng cộng dồn tất cả giá trị được phát ra từ nguồn phát. Ví dụ:
+```kotlin
+fun main() = runBlocking {
+    val sum = (1..3).asFlow()
+        .map { it * it } // squares of numbers from 1 to 5
+        .reduce { a, b -> a + b } // sum them
+    println(sum)
+}
+
+```
+`Output: 14`
+
+Đoạn code trên mình phát 3 giá trị là 1, 2, 3. Sau đó qua hàm map để bình phương giá trị đó lên thành 1, 4, 9. Sau đó hàm reduce sẽ cộng dồn 3 giá trị này lại 1 + 4 + 9 = 14 và mình in cái tổng này ra như output.
+
+Mổ xẻ ra xem toán tử reduce có gì trong đó.
+```kotlin
+/**
+ * Accumulates value starting with the first element and applying [operation] to current accumulator value and each element.
+ * Throws [UnsupportedOperationException] if flow was empty.
+ */
+@FlowPreview
+public suspend fun <S, T : S> Flow<T>.reduce(operation: suspend (accumulator: S, value: T) -> S): S
+
+```
+Đầu tiên dễ thấy hàm reduce không trả về Flow nên chúng ta không cần collect. Nó chỉ trả về đúng 1 giá trị sau khi cộng dồn tất cả giá trị từ nguồn phát. Chúng ta sẽ chạy thử 1 đoạn code nữa để xem cách nó hoạt động thế nào:
+```kotlin
+fun main() = runBlocking {
+    val sum = listOf("a", "b", "c", "d", "e").asFlow()
+        .reduce { a, b ->
+            println("Tổng đã tích lũy: $a")
+            println("Giá trị mới: $b")
+            a + b }
+    println("Kết quả = $sum")
+}
+
+```
+```
+Output:
+
+Tổng đã tích lũy: a
+Giá trị mới: b
+Tổng đã tích lũy: ab
+Giá trị mới: c
+Tổng đã tích lũy: abc
+Giá trị mới: d
+Tổng đã tích lũy: abcd
+Giá trị mới: e
+Kết quả = abcde
+```
+Mình đã in ra 2 param a và b trong biểu thức lambda của hàm reduce. Nhìn vào output: dễ dàng thấy a chính là tổng tất cả giá trị đã tích lũy tính đến thời điểm nhận giá trị mới là b. Và nó tiếp tục cộng b vào và chạy tiếp cho đến khi hết giá trị.
+### 1.7. Toán tử fold()
+Toán tử này khá giống toán tử reduce(). Nó cũng có chức năng chính là tính tổng, tuy nhiên nó khác ở chỗ hàm reduce tính tổng từ con số 0 còn hàm fold tính tổng từ một giá trị được cho trước.
+```kotlin
+fun main() = runBlocking {
+    val sum = (1..3).asFlow()
+        .fold(initial = 10) { a, b -> // mình cho giá trị khởi tạo ban đầu là 10
+            println("Tổng đã tích lũy: $a đồng")
+            println("Giá trị mới: $b đồng")
+            a + b } // sum them (terminal operator)
+    println("Kết quả = $sum đồng")
+}
+
+```
+```
+Output:
+
+Tổng đã tích lũy: 10 đồng
+Giá trị mới: 1 đồng
+Tổng đã tích lũy: 11 đồng
+Giá trị mới: 2 đồng
+Tổng đã tích lũy: 13 đồng
+Giá trị mới: 3 đồng
+Kết quả = 16 đồng
+
+```
+Vậy cái tổng này ban đầu đã được mình cho 10 đồng rồi, bây giờ nó tính cộng dồn thêm 1 đồng, 2 đồng và 3 đồng nữa thì kết quả cuối cùng được 16 đồng (10 + 1 + 2 + 3)
+### 1.8. Toán tử toList(), toSet()
+Toán tử này giúp chúng ta convert một flow thành một ArrayList hoặc LinkedHashSet
+```kotlin
+fun main() = runBlocking {
+    val list: List<String> = listOf("a", "b", "c", "d", "e").asFlow().toList()
+    val set: Set<Int> = (1..5).asFlow().toSet()
+    println("${list.javaClass} $list")
+    println("${set.javaClass} $set")
+}
+
+```
+
+```
+Output:
+
+class java.util.ArrayList [a, b, c, d, e]
+class java.util.LinkedHashSet [1, 2, 3, 4, 5]
+
+```
+### 1.9. Toán tử first()
+Toán tử này giúp chúng ta get ra phần tử đầu tiên trong flow
+```kotlin
+fun main() = runBlocking {
+    val a: Int = listOf(1, 3, 5, 7, 2, 6, 8, 4).asFlow().first()
+    println(a)
+}
+
+```
+`Output: 1`
+
+Nếu chúng ta muốn lấy ra phần tử đầu tiên trong flow thỏa mãn một điều kiện nào đó. Hãy thử hàm `first { }`. Ví dụ chúng ta muốn get ra số chẵn đầu tiên trong flow:
+```kotlin
+fun main() = runBlocking {
+    val a: Int = listOf(1, 3, 5, 7, 2, 6, 8, 4).asFlow().first { it % 2 == 0 } // in ra số chẵn đầu tiên
+    println(a)
+}
+
+```
+
+```
+Output: 2
+```
+Cả hàm `first()` và `first { }` đều `throw NoSuchElementException` nếu nó không get được phần tử nào (ví dụ trường hợp flow không có phần tử nào hoặc trong flow không có phần tử nào thỏa mãn điều kiện)
+### 1.10. Toán tử single(), singleOrNull()
+Toán tử single để check chắc chắn rằng nguồn `flow` chỉ có một phần tử và nó sẽ return giá trị đó. Trường hợp `flow` có nhiều hay ít hơn 1 phần tử đều bị `throw Exception`.
+```kotlin
+fun main() = runBlocking {
+    val a: Int = listOf(10).asFlow().single() // trả về 10
+    listOf(1, 2).asFlow().single() // throw IllegalStateException vì có nhiều hơn 1 phần tử
+    listOf<Int>().asFlow().single() // throw IllegalStateException vì có ít hơn 1 phần tử
+    println(a) // in ra 10
+}
+
+```
+Để tránh bị throw Exception chúng ta có thể sử dụng toán tử singleOrNull(). Toán tử này sẽ trả về null nếu flow không có phần tử nào. Trường hợp flow có nhiều hơn một phần tử nó vẫn throw Exception như thường 😄
+```kotlin
+fun main() = runBlocking {
+    val a: Int? = listOf(10).asFlow().singleOrNull() // trả về 10
+    val b: Int? = listOf<Int>().asFlow().singleOrNull() // trả về null vì có ít hơn 1 phần tử
+    listOf(1, 2).asFlow().singleOrNull() throw Exception vì có nhiều hơn 1 phần tử
+    println(a.toString()) // in ra 10
+    println(b.toString()) // in ra null
+}
+
+```
+### 1.11. Toán tử zip()
+Toán tử này dùng để `zip` 2 `flow` lại (giống như hàm zip trong `Sequence` hay `List`). Có nghĩa là nó sẽ lấy 1 phần tử bên `flowA` và 1 phần tử bên `flowB` để kết hợp lại tạo ra một phần tử mới.
+```kotlin
+fun main() = runBlocking<Unit> {
+    val nums = (1..3).asFlow() // numbers 1..3
+    val strs = flowOf("one", "two", "three") // strings
+    nums.zip(strs) { a, b -> "$a -> $b" } // compose a single string
+        .collect { println(it) } // collect and print
+}
+
+```
+
+```
+Output: 
+
+1 -> one
+2 -> two
+3 -> three
+
+```
+Như vậy nó đã lấy 1 của `flow nums` kết hợp với `one` của `flow strs` để cho ra phần tử `1 -> one`. Tương tự cho ra `2 -> two, 3 -> three`
+### 1.12. Toán tử combine()
+Toán tử combine cũng tương tự như toán tử zip. Có nghĩa là nó cũng sẽ lấy 1 phần tử bên flowA và 1 phần tử bên flowB để kết hợp lại tạo ra một phần tử mới. Nhưng có 1 sự khác nhau giữa combine và zip. Mình sẽ dùng 2 đoạn code để demo zip và demo combine để dễ dàng phân biệt.
+
+**_Sử dụng combine_**
+
+Khi sử dụng combine, mỗi khi một trong các Flow phát ra giá trị mới, nó sẽ kết hợp giá trị đó với giá trị mới nhất từ các Flow khác. Điều này có nghĩa là nếu một Flow phát ra giá trị mới, combine sẽ sử dụng giá trị mới nhất từ các Flow khác để tạo ra giá trị kết hợp.
+```kotlin
+val flowA = flow {
+    emit(1)
+    delay(100)
+    emit(2)
+    delay(100)
+    emit(3)
+}
+
+val flowB = flow {
+    emit("A")
+    delay(150)
+    emit("B")
+    delay(150)
+    emit("C")
+}
+
+flowA.combine(flowB) { a, b -> "$a -> $b" }
+    .collect { println(it) } // Kết quả sẽ là: 1A, 2A, 2B, 3B, 3C
+
+```
+```
+Khi flow1 phát ra 1, flow2 chưa phát ra giá trị nào, nên không có giá trị nào được phát ra từ combinedFlow.
+Khi flow2 phát ra A, combinedFlow sẽ phát ra 1A (sử dụng giá trị mới nhất từ flow1 là 1).
+Khi flow1 phát ra 2, combinedFlow sẽ phát ra 2A (vì flow2 vẫn đang giữ giá trị A).
+Khi flow2 phát ra B, combinedFlow sẽ phát ra 2B.
+Khi flow1 phát ra 3, combinedFlow sẽ phát ra 3B.
+Cuối cùng, khi flow2 phát ra C, combinedFlow sẽ phát ra 3C.
+```
+
+**_Sử dụng zip_**
+
+Ngược lại, zip chỉ phát ra giá trị mới khi cả hai Flow đều có giá trị mới. Điều này có nghĩa là nó sẽ "chờ" cho đến khi có giá trị mới từ cả hai nguồn.
+
+***Đồng bộ hóa giữa hai luồng***
+
+* `zip` sẽ chờ cả hai `Flow` phát giá trị để ghép cặp từng phần tử tương ứng (ví dụ: `FlowA` phát giá trị thứ nhất thì phải chờ `FlowB` cũng phát giá trị thứ nhất).
+
+***Ngừng khi một trong hai luồng kết thúc***
+* Nếu một `Flow` có ít giá trị hơn luồng còn lại, `zip` chỉ ghép cặp cho đến khi luồng ngắn hơn phát hết giá trị. Trong trường hợp này, mỗi `Flow` đều có 3 phần tử, vì vậy `zip` sẽ ghép cả 3 cặp.
+```kotlin
+val flowA = flow {
+    emit(1)
+    delay(1000) // Phát giá trị sau 1 giây
+    emit(2)
+    delay(1000)
+    emit(3)
+}
+
+val flowB = flow {
+    emit("A")
+    delay(1500) // Phát giá trị sau 1.5 giây
+    emit("B")
+    delay(1500)
+    emit("C")
+}
+
+flowA.zip(flowB) { a, b -> "$a -> $b" }
+    .collect { println(it) }
+
+```
+
+```
+1. Khi FlowA phát giá trị 1 (sau delay(1000)), nó phải chờ FlowB phát giá trị đầu tiên (A), sau delay(1500) để tạo cặp 1→A.
+
+2. Sau khi FlowB phát giá trị A, cả hai luồng tiếp tục hoạt động. Lần lượt FlowA phát giá trị 2 sau delay(1000) và FlowB phát giá trị B sau delay(1500). Kết quả: 2→B.
+
+3. Tương tự, giá trị cuối cùng 3→C được tạo khi cả hai luồng đều phát hết giá trị của mình.
+```
+### 1.13. Toán tử flatMapConcat(), flatMapMerge(), flatMapLatest()
+Công dụng của các toán tử flatMap này đều dùng để xử lý bài toán sau: Giả sử chúng ta có rất nhiều flow là flowA, flowB, flowC, flowD,.... flowA emit data sang cho flowB, flowB nhận và tiếp tục xử lý data đó rồi emit nó sang flowC, cứ như vậy cho đến flow cuối cùng. 3 toán tử này đều là flatMap nên đều được dùng trong bài toán trên, mình sẽ so sánh sự khác nhau của nó bằng 3 đoạn code. Ví dụ chung mình đưa ra cho cả 3 toán tử là: Có một flowA sẽ emit 3 giá trị là số 1, số 2 và số 3 sang cho 1 flowB khác, trước khi nó emit nó bị delay 100ms. Với mỗi giá trị mà flowB nhận được từ flowA, flowB sẽ xử lý và emit ra 2 giá trị First và Second và có delay 500ms giữa 2 lần emit.
+#### 1.13.1. flatMapConcat
+```kotlin
+fun requestFlow(i: Int): Flow<String> = flow { // Đây là flowB
+    emit("$i: First") 
+    delay(500) // wait 500 ms
+    emit("$i: Second")    
+}
+
+fun main() = runBlocking<Unit> { 
+    val startTime = System.currentTimeMillis() // remember the start time 
+    // Dưới đây là flowA
+    (1..3).asFlow().onEach { delay(100) } // a number every 100 ms 
+        .flatMapConcat { requestFlow(it) }                                                                           
+        .collect { value -> // collect and print 
+            println("$value at ${System.currentTimeMillis() - startTime} ms from start") 
+        } 
+}
+
+```
+
+```
+Output:
+
+1: First at 121 ms from start
+1: Second at 622 ms from start
+2: First at 727 ms from start
+2: Second at 1227 ms from start
+3: First at 1328 ms from start
+3: Second at 1829 ms from start
+
+```
+Nhìn vào các mốc thời gian `100ms` (do delay 100ms trong `flowA`), `600ms` (do delay 500ms tiếp theo trong `flowB`), `700ms` (delay 100ms tiếp theo), `1200ms` (delay 500ms tiếp theo), `1300ms` (delay 100ms tiếp theo), `1800ms` (delay 500ms tiếp theo). Vậy toán tử này sẽ chờ đợi đến khi `flowB` hoàn thành cả 2 emit rồi mới bắt đầu `collect` data tiếp theo từ `flowA`.
+
+#### 1.13.2. flatMapMerge
+```kotlin
+fun requestFlow(i: Int): Flow<String> = flow { // Đây là flowB
+    emit("$i: First") 
+    delay(500) // wait 500 ms
+    emit("$i: Second")    
+}
+
+fun main() = runBlocking<Unit> { 
+    val startTime = System.currentTimeMillis() // remember the start time 
+    // Dưới đây là flowA
+    (1..3).asFlow().onEach { delay(100) } // a number every 100 ms 
+        .flatMapMerge { requestFlow(it) }                                                                           
+        .collect { value -> // collect and print 
+            println("$value at ${System.currentTimeMillis() - startTime} ms from start") 
+        } 
+}
+
+```
+
+```
+Output:
+
+1: First at 136 ms from start
+2: First at 231 ms from start
+3: First at 333 ms from start
+1: Second at 639 ms from start // 500ms sau kể từ khi phần tử first được emit
+2: Second at 732 ms from start // 500ms sau kể từ khi phần tử first được emit
+3: Second at 833 ms from start // 500ms sau kể từ khi phần tử first được emit
+
+```
+
+Dựa vào các mốc thời gian trong output. Dễ thấy toán tử này collect tất cả các luồng đến và hợp nhất các giá trị của chúng thành một luồng duy nhất để các giá trị được phát ra càng sớm càng tốt. Toán từ này nó không đợi flowB emit xong phần tử Second như flatMapConcat mà nó tiếp tục collect tiếp từ flowA. Vậy nên 300ms đầu tiên, cả 3 phần tử First được in ra trước. delay thêm 500ms sau thì các toán tử Second mới được in ra.
+
+#### 1.13.3. flatMapLatest
+```kotlin
+fun requestFlow(i: Int): Flow<String> = flow { // Đây là flowB
+    emit("$i: First")
+    delay(500) // wait 500 ms
+    emit("$i: Second")
+}
+
+fun main() = runBlocking<Unit> {
+    val startTime = System.currentTimeMillis() // remember the start time 
+    // Dưới đây là flowA
+    (1..3).asFlow().onEach { delay(100) } // a number every 100 ms 
+        .flatMapLatest { requestFlow(it) }
+        .collect { value -> // collect and print 
+            println("$value at ${System.currentTimeMillis() - startTime} ms from start")
+        }
+}
+
+```
+```
+Output:
+
+1: First at 142 ms from start
+2: First at 322 ms from start
+3: First at 425 ms from start
+3: Second at 931 ms from start
+
+```
+flatMapLatest đã hủy tất cả code trong khối của nó flowB khi nó gặp delay trong flowB và tiếp tục collect data từ flowA. Như vậy sau khi flowA emit ra số 1, số 1 sẽ vào tới flowB gặp delay và flowA đang rất nóng vội để emit tiếp phần tử thứ 2 nên flowB sẽ bị hủy ngay tại đó. flowA tiếp tục emit tiếp số 2, số 2 lại vào tới flowB gặp delay nên flowB bị hủy ngay tại đó. flowA tiếp tục emit tiếp số 3 cũng là phần tử cuối cùng, nó lại vào tới flowB gặp delay nhưng nó không bị hủy vì flowA đã emit ra phần tử cuối cùng rồi, ko thể emit thêm được nữa.
+
+Chính hàm delay là nguyên nhân khiến cho flowB bị hủy. Vậy nên khi chúng ta bỏ hàm delay đi thì flowB sẽ không thể bị hủy.
+
+```kotlin
+fun requestFlow(i: Int): Flow<String> = flow { // Đây là flowB
+    emit("$i: First")  // đã xóa hàm delay(500)
+    emit("$i: Second")    
+}
+
+fun main() = runBlocking<Unit> { 
+    val startTime = System.currentTimeMillis() // remember the start time 
+     // Dưới đây là flowA
+    (1..3).asFlow().onEach { delay(100) } // a number every 100 ms 
+        .flatMapLatest { requestFlow(it) }                                                                           
+        .collect { value -> // collect and print 
+            println("$value at ${System.currentTimeMillis() - startTime} ms from start") 
+        } 
+}
+
+```
+
+```
+1: First at 180 ms from start
+1: Second at 180 ms from start
+2: First at 281 ms from start
+2: Second at 281 ms from start
+3: First at 382 ms from start
+3: Second at 382 ms from start
+
+```
+
+Chúng ta thấy cả 6 dòng được in ra, không dòng nào bị hủy.
+
+**Kết luận**
+
+Hy vọng qua bài viết này, các bạn đã nắm được các toán tử cơ bản về Flow. Trong phần tiếp theo, mình sẽ giới thiệu context và xử lý exception trong Flow. Cảm ơn các bạn đã theo dõi bài viết này. Hy vọng các bạn sẽ tiếp tục theo dõi những phần tiếp theo. 😄
 
 # X. Flow (part 3 of 3)
+## 1. Flow Context
+Code trong khối flow {...} chạy trên context của nguồn thu. Ví dụ:
+```kotlin
+fun log(msg: String) = println("[${Thread.currentThread().name}] $msg")
+           
+fun foo(): Flow<Int> = flow {
+    log("Started foo flow")
+    for (i in 1..3) {
+        emit(i) // nguồn phát
+    }
+}  
+
+fun main() = runBlocking {
+    foo().collect { value -> log("Collected $value") } // nguồn thu
+}   
+
+```
+```
+Output:
+
+[main] Started foo flow
+[main] Collected 1
+[main] Collected 2
+[main] Collected 3
+
+```
+
+Dễ hiểu, vì hàm collect (nguồn thu) được gọi bên trong khối runBlocking (sử dụng context với dispatcher là Dispatchers.Main) nên code trong khối flow chạy trên context này tức là chạy trên Dispatchers.Main.
+
+Tuy nhiên, trong một số bài toán (đặc biệt là bài toán long-running CPU-consuming code), chúng ta mong muốn code trong khối flow được chạy với Dispatchers.Default (background thread) và update UI với Dispatchers.Main (main thread). Có thể chúng ta sẽ nghĩ đến ngay hàm withContext. withContext được sử dụng để thay đổi context của coroutine. Tuy nhiên code trong khối flow { } nó lại bảo toàn context, có nghĩa là nó đã chạy với context nào rồi thì mãi chạy trên context đó. Ko thể ép nó đổi context bằng hàm withContext được. Nếu dùng hàm withContext sẽ throw Exception.
+```kotlin
+fun foo(): Flow<Int> = flow {
+    // The WRONG way to change context for CPU-consuming code in flow builder
+    kotlinx.coroutines.withContext(Dispatchers.Default) {
+        for (i in 1..3) {
+            Thread.sleep(100) // pretend we are computing it in CPU-consuming way
+            emit(i) // emit next value
+        }
+    }
+}
+
+fun main() = runBlocking<Unit> {
+    foo().collect { value -> println(value) } 
+}    
+    
+```
+
+```
+Output:
+
+Exception in thread "main" java.lang.IllegalStateException: Flow invariant is violated:
+        Flow was collected in [CoroutineId(1), "coroutine#1":BlockingCoroutine{Active}@5511c7f8, BlockingEventLoop@2eac3323],
+        but emission happened in [CoroutineId(1), "coroutine#1":DispatchedCoroutine{Active}@2dae0000, DefaultDispatcher].
+        Please refer to 'flow' documentation or use 'flowOn' instead
+    at ...
+
+```
+Vậy giờ phải làm thế nào mới có thể đổi context cho flow. Đừng lo vì đã có toán tử flowOn.
+
+## 2. Toán tử flowOn
+Toán tử flowOn sẽ cho phép code trong khối flow được chạy trên bất kỳ context nào ta muốn. Cùng xem code:
+```kotlin
+fun log(msg: String) = println("[${Thread.currentThread().name}] $msg")
+           
+fun foo(): Flow<Int> = flow {
+    for (i in 1..3) {
+        Thread.sleep(100) // pretend we are computing it in CPU-consuming way
+        log("Emitting $i")
+        emit(i) // emit next value
+    }
+}.flowOn(Dispatchers.Default) // RIGHT way to change context for CPU-consuming code in flow builder
+
+fun main() = runBlocking<Unit> {
+    foo().collect { value ->
+        log("Collected $value") 
+    } 
+}      
+
+```
+```
+Output:
+
+[DefaultDispatcher-worker-1] Emitting 1
+[main] Collected 1
+[DefaultDispatcher-worker-1] Emitting 2
+[main] Collected 2
+[DefaultDispatcher-worker-1] Emitting 3
+[main] Collected 3
+
+```
+Vậy code trong nguồn phát đã chạy với `Dispatchers.Default` (background thread) và code trong nguồn thu chạy với `Dispatchers.Main` (main thread) đúng như mong muốn ban đầu của chúng ta 😄. Một điều cần lưu ý ở đây là toán tử `flowOn` không có khả năng change context của coroutine đang chạy. Vậy sao nó làm được điều này?. Vì nó đã tạo ra 1 coroutine khác chạy trên context do chúng ta set trong hàm `flowOn`. Cụ thể ở đây chúng ta gọi `.flowOn(Dispatchers.Default)` thì `flowOn` sẽ tạo ra 1 coroutine chạy trên `Dispatchers.Default`.
+
+## 3. Flow Exceptions
+Nguồn thu có khả năng throw Exception nếu code chạy trong nguồn phát xảy ra Exception. Ví dụ:
+```kotlin
+fun foo(): Flow<Int> = flow {
+    for (i in 3 downTo -3) {
+        println("3 / $i = ${3 / i}") // nơi xảy ra exception trong nguồn phát
+        emit(i) // emit next value
+    }
+}
+
+fun main() = runBlocking {
+     foo().collect { value ->
+         println("VALUE = $value")
+     }
+}
+
+```
+```
+Output:
+
+3 / 3 = 1
+VALUE = 3
+3 / 2 = 1
+VALUE = 2
+3 / 1 = 3
+VALUE = 1
+Exception in thread "main" java.lang.ArithmeticException: / by zero
+
+```
+Exception đã xảy ra khi i = 0 và hiển nhiên nguồn thu/nguồn phát đều phải dừng hoạt động. Chúng ta hoàn toàn có thể try/catch để catch exception này trong hàm thu.
+```kotlin
+fun foo(): Flow<Int> = flow {
+    for (i in 3 downTo -3) {
+        println("3 / $i = ${3 / i}") // nơi xảy ra exception trong nguồn phát
+        emit(i) // emit next value
+    }
+}
+
+fun main() = runBlocking {
+    try {
+        foo().collect { value ->
+            println("VALUE = $value")
+        }
+    } catch (e: Throwable) {
+        println("Caught $e")
+    }
+}
+
+```
+```
+Output:
+
+3 / 3 = 1
+VALUE = 3
+3 / 2 = 1
+VALUE = 2
+3 / 1 = 3
+VALUE = 1
+Caught java.lang.ArithmeticException: / by zero
+
+```
+
+Mặc dù ArithmeticException đã bị catch nhưng nguồn thu/nguồn phát đều dừng hoạt động sau khi catch được Exception.
+
+Bây giờ thử throw Exception bên trong nguồn thu xem.
+
+```kotlin
+fun foo(): Flow<Int> = flow {
+    for (i in 3 downTo -3) {
+        emit(i) // emit next value
+    }
+}
+
+fun main() = runBlocking {
+    try {
+        foo().collect { value ->
+            println("3 / $value = ${3 / value}") // nơi xảy ra exception trong nguồn thu
+        }
+    } catch (e: Throwable) {
+        println("Caught $e")
+    }
+}
+
+```
+
+```
+Output:
+
+3 / 3 = 1
+3 / 2 = 1
+3 / 1 = 3
+Caught java.lang.ArithmeticException: / by zero
+
+```
+
+Như vậy `try/catch` vẫn catch được `Exception` dù exception có xảy ra trong nguồn thu hay nguồn phát.
+
+Chúng ta cũng có thể `try/catch Exception` bằng toán tử `catch`.
+
+## 4. Toán tử catch
+```kotlin
+fun foo(): Flow<String> = flow {
+    for (i in 3 downTo -3) {
+        println("3 / $i = ${3 / i}")
+        emit(i.toString()) // emit next value
+    }
+}
+
+fun main() = runBlocking {
+    foo().catch { e -> emit("Caught $e") }
+        .collect { value -> println("VALUE = $value")
+    }
+}
+
+```
+
+```
+Output:
+
+3 / 3 = 1
+VALUE = 3
+3 / 2 = 1
+VALUE = 2
+3 / 1 = 3
+VALUE = 1
+VALUE = Caught java.lang.ArithmeticException: / by zero
+
+```
+Output của cả 2 ví dụ là như nhau mà trông code có vẻ đẹp hơn dùng try/catch đấy. Hơn nữa là trong toán tử catch cho phép chúng ta emit giá trị cho nguồn thu luôn. Như ví dụ trên, mình đã cho emit exception đó đến nguồn thu. try/catch thì không thể làm được điều này. Tuy nhiên toán tử catch lại không thể catch Exception xảy ra trong hàm collect { } (nguồn thu) như try/catch đã làm được ở ví dụ trên.
+```kotlin
+fun foo(): Flow<Int> = flow {
+    for (i in 3 downTo -3) {
+        emit(i) // emit next value
+    }
+}
+
+fun main() = runBlocking {
+    foo().catch { e -> println("Caught $e") }
+        .collect { value ->
+            println("3 / $value = ${3 / value}") // nơi xảy ra exception trong nguồn thu
+        }
+}
+```
+```
+Output:
+
+3 / 3 = 1
+3 / 2 = 1
+3 / 1 = 3
+Exception in thread "main" java.lang.ArithmeticException: / by zero
+
+```
+
+Như vậy toán tử catch không thể catch được exception xảy ra trong hàm collect { }. Có một cách để chúng ta có thể sử dụng toán tử catch để catch cả exception xảy ra trong nguồn thu. Nhờ sự trợ giúp của toán tử onEach
+
+## 5. Toán tử onEach
+Chúng ta sẽ move code trong hàm collect (nơi xảy ra Exception) vào toán tử onEach. Đồng thời hàm collect sẽ không còn param nào nữa.
+```kotlin
+fun foo(): Flow<Int> = flow {
+    for (i in 3 downTo -3) {
+        emit(i) // emit next value
+    }
+}
+
+fun main() = runBlocking {
+    foo().onEach { value ->
+        println("3 / $value = ${3 / value}") // nơi xảy ra Exception
+    }.catch { e -> println("Caught $e") }
+        .collect()
+}
+
+```
+
+```
+Output:
+
+3 / 3 = 1
+3 / 2 = 1
+3 / 1 = 3
+Caught java.lang.ArithmeticException: / by zero
+
+```
+
+Như vậy, exception đã được catch bởi toán tử catch.
+
+Nếu chúng ta sử dụng toán tử collect sau onEach, thì code sau nó sẽ đợi cho đến khi flow kết thúc việc collect rồi mới được chạy. Ví dụ:
+```kotlin
+fun events(): Flow<Int> = (1..3).asFlow().onEach { delay(100) }
+
+fun main() = runBlocking<Unit> {
+    events()
+        .onEach { event -> println("Event: $event") }
+        .collect() // <--- Collecting the flow waits
+    println("Done")
+} 
+
+```
+
+```
+Output:
+
+Event: 1
+Event: 2
+Event: 3
+Done
+
+```
+
+Như vậy, dòng code println("Done") đã phải đợi flow kết thúc việc collect mới được chạy. Nếu chúng ta không muốn điều này xảy ra, chúng ta muốn coroutine vẫn tiếp tục chạy xuống code phía dưới dù có đang delay hay collect. Toán tử launchIn sẽ giúp chúng ta.
+
+## 6. Toán tử launchIn
+Toán tử này truyền vào một param là CoroutineScope và return một biến Job. Biến job này có thể giúp chúng ta cancel code trong flow mà không cancel hết cả coroutine. Code trong coroutine vẫn tiếp tục chạy.
+
+```kotlin
+fun events(): Flow<Int> = (1..3).asFlow().onEach { delay(100) }
+
+fun main() = runBlocking<Unit> {
+    events()
+        .onEach { event -> println("Event: $event") }
+        .launchIn(this) // <--- Launching the flow in a separate coroutine
+    println("Done")
+}   
+
+```
+
+```
+Output:
+
+Done
+Event: 1
+Event: 2
+Event: 3
+
+```
+
+## 7. Flow completion. Toán tử onCompletion
+Đôi khi chúng ta muốn biết thời điểm flow vừa kết thúc tiến trình đúng ko nào. Có 2 cách để biết được điều này.
+
+**Cách 1 là sử dụng khối finally**
+```kotlin
+fun foo(): Flow<Int> = (1..3).asFlow()
+
+fun main() = runBlocking<Unit> {
+    try {
+        foo().collect { value -> println(value) }
+    } finally {
+        println("Done")
+    }
+}   
+
+```
+
+```
+Output:
+
+1
+2
+3
+Done
+
+```
+Như vậy sau khi tiến trình kết thúc thì nó sẽ chạy sang code khối finally.
+
+**Cách 2: Toán tử onCompletion sẽ giúp chúng ta:**
+```kotlin
+fun foo(): Flow<Int> = (1..3).asFlow()
+
+fun main() = runBlocking<Unit> {
+    foo()
+        .onCompletion { println("Done") }
+        .collect { value -> println(value) }
+}
+
+```
+```
+Output:
+
+1
+2
+3
+Done
+
+```
+
+Như vậy sau khi tiến trình flow kết thúc nó sẽ chạy vào code trong khối onCompletion. Và chúng ta có thể tận dụng chỗ này để hide progressBar chẳng hạn. Một ưu điểm nữa của toán tử onCompletion là nó có thể giúp ta biết được flow đã kết thúc tiến trình êm ấm hay kết thúc bằng một Exception. Chúng ta có thể dễ dàng biết được thông qua param nullable Throwable?. Nếu param này mà null thì mọi chuyện êm ấm, nếu param này khác null thì exception đã xảy ra rồi đấy!
+
+```kotlin
+fun foo(): Flow<Int> = flow {
+    emit(1)
+    throw RuntimeException()
+}
+
+fun main() = runBlocking<Unit> {
+    foo()
+        .onCompletion { cause -> if (cause != null) println("Flow completed exceptionally") }
+        .catch { cause -> println("Caught exception") }
+        .collect { value -> println(value) }
+} 
+
+```
+
+```
+Output:
+
+1
+Flow completed exceptionally
+Caught exception
+
+```
+
+Cả 2 cách trên đều có thể được dùng tùy theo sở thích và style code của bạn 😄
+
+**Kết luận**
+
+Hy vọng qua bài viết này, các bạn đã nắm được các thêm một vài toán tử về Flow cũng như context và xử lý exception trong Flow. Phần tiếp theo mình sẽ viết về Channels và so sánh nó với Flow. Cảm ơn các bạn đã theo dõi bài viết này. Hy vọng các bạn sẽ tiếp tục theo dõi những phần tiếp theo. 😄.
 
 # XI. Channels (part 1 of 2)
 

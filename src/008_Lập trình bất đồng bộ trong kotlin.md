@@ -5,10 +5,10 @@ Xưa nay, các dev luôn phải đối mặt với một vấn đề cần giả
 
 Để giải quyết bài toán trên, các dev buộc phải biết kỹ thuật lập trình bất đồng bộ. Có nhiều cách tiếp cận để giải quyết vấn đề này, bao gồm:
 
-Threading.
-Thread + Callbacks/Asynctask/Handler.
-Reactive Extensions (Rx).
-Coroutines.
+* Threading.
+* Thread + Callbacks/Asynctask/Handler.
+* Reactive Extensions (Rx).
+* Coroutines.
 Trước khi giải thích Coroutines là gì, hãy xem xét ngắn gọn một số giải pháp khác.
 
 ## 2. Một số giải pháp xử lý bất đồng bộ
@@ -1360,7 +1360,8 @@ Kết thúc phần 7, hy vọng bạn đã biết cách xử lý các exception 
 
 # VIII. Flow (part 1 of 3)
 ## 1. Giới thiệu Flow trong Kotlin Coroutine
-### 1.1. Flow về cơ bản khá giống Sequences trong Kotlin nhưng khác ở chỗ Sequences xử lý đồng bộ còn Flow xử lý bất đồng bộ. Nếu bạn chưa biết về Sequences thì khái niệm này khiến bạn khá khó hiểu đúng hơm 😄. Vậy nên trước tiên mình sẽ nói đôi chút về Collections và Sequences trong Kotlin.
+Flow về cơ bản khá giống Sequences trong Kotlin nhưng khác ở chỗ Sequences xử lý đồng bộ còn Flow xử lý bất đồng bộ. Nếu bạn chưa biết về Sequences thì khái niệm này khiến bạn khá khó hiểu đúng hơm 😄. Vậy nên trước tiên mình sẽ nói đôi chút về Collections và Sequences trong Kotlin.
+### 1.1.
 Collections vs Sequences vs Flow
 Mình sẽ sử dụng Collections vs Sequences vs Flow cùng đưa ra lời giải cho một bài toán: Build hàm foo() in ra 3 số 1, 2, 3 có thời gian delay và đo thời gian thực hiện của hàm foo. Qua đó các bạn sẽ dễ thấy sự khác biệt giữa Collections vs Sequences vs Flow.
 

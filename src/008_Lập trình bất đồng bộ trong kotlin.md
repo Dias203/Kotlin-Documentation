@@ -955,15 +955,22 @@ Chúng ta cũng có thể khởi tạo 1 scope bằng các factory function như
 public fun MainScope(): CoroutineScope = ContextScope(SupervisorJob () + Dispatchers.Main)
 ```
 Tất cả coroutine builder mà trong các bài trước mình đã giới thiệu như launch { } hay async { } đều là những extension function của lớp CoroutineScope. Chính vì vậy bạn không thể gọi các hàm launch { } và async { } bên ngoài một CoroutineScope được. Riêng runBlocking { } thì không phải là extension function của CoroutineScope mà nó nhận CoroutineScope như một tham số truyền vào nên nó thể được gọi ngoài CoroutineScope. Bản thân runBlocking { } nhờ nhận CoroutineScope như 1 param nên nó tạo ra 1 scope để có thể chạy được các coroutine bên trong đó. Vậy hãy ghi nhớ, không thể launch 1 coroutine nếu nó không có scope. Hay nói cách khác, ngoài vùng CoroutineScope thì không thể launch coroutine nào cả.
-![img.png](assets/img_11.png)
-![img_1.png](assets/img_1_1.png)
-![img_2.png](assets/img_2_1.png)
-![img_3.png](assets/img_3.png)
-![img_4.png](assets/img_4.png)
-Ngoài các cách trên, có một cách nữa để tạo ra 1 scope để có thể launch các coroutine. Đó là kế thừa lớp CoroutineScope và bạn sẽ cần phải override lại biến coroutineContext.
-![img_5.png](assets/img_5.png)
-Hoặc tự custom một scope cho riêng mình và dùng nó để chạy các coroutine.
 
+![img.png](assets/img_11.png)
+
+![img_1.png](assets/img_1_1.png)
+
+![img_2.png](assets/img_2_1.png)
+
+![img_3.png](assets/img_3.png)
+
+![img_4.png](assets/img_4.png)
+
+Ngoài các cách trên, có một cách nữa để tạo ra 1 scope để có thể launch các coroutine. Đó là kế thừa lớp CoroutineScope và bạn sẽ cần phải override lại biến coroutineContext.
+
+![img_5.png](assets/img_5.png)
+
+Hoặc tự custom một scope cho riêng mình và dùng nó để chạy các coroutine.
 
 ![img_6.png](assets/img_6.png)
 
